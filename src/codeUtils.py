@@ -28,7 +28,7 @@ OUT_CHANNEL = 1
 
 # Metric
 def dice_coef(y_true, y_pred):
-    smooth = 1e-6 # check the correct value
+    smooth = 1e-6
     y_pred_1 = y_pred
     y_true_1 = tf.one_hot(tf.cast(y_true[...,0], tf.int64), depth=5, axis=-1)
     num = K.sum(y_true_1 * y_pred_1, axis=(0, 1, 2))
@@ -37,12 +37,6 @@ def dice_coef(y_true, y_pred):
     dice = K.mean((2. * num + smooth)/(den + smooth))
     return dice
 
-# def dice_coef(y_true, y_pred):
-#     smooth = 1.
-#     y_true_f = K.flatten(y_true)
-#     y_pred_f = K.flatten(y_pred)
-#     intersection = K.sum(y_true_f * y_pred_f)
-#     return (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
 # Loss fn
 # shapes (y_true, y_pred) = ([batch, 144, 144, 80, 1], [batch, 144, 144, 80, 5{onehot}])
 def soft_dice_loss(y_true, y_pred):

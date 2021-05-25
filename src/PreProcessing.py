@@ -3,12 +3,10 @@ import os, sys, time, multiprocessing
 import ants, shutil
 from intensity_normalization.normalize import nyul
 
-PROCESSED_DIR = '../pp/Train'
+PROCESSED_DIR = '../ProcessedData/Train'
 HGG_DIR = '../Dataset_BRATS2015NII/Train/HGG'
 LGG_DIR = '../Dataset_BRATS2015NII/Train/LGG'
-# HGG_DIR = '../DataNII/Train/HGG'
-# LGG_DIR = '../DataNII/Train/LGG'
-TEMP_DIR = '../pp/TEMP'
+TEMP_DIR = '../ProcessedData/TEMP'
 
 def createDir(name):
     if not os.path.exists(name):
@@ -31,7 +29,7 @@ def getPath(newDir, name, module):
         return os.path.join(newDir, name, name+'_flair.nii')
     return os.path.join(newDir, name, name+'_seg.nii')
 
-def n4_bfc(param): # even for seg???????????????????
+def n4_bfc(param):
     INP_DIR = param[0]
     pat = param[1]
     out_pat = pat + ('_HGG' if 'HGG' in INP_DIR else '_LGG' )

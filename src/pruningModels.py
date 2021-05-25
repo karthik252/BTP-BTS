@@ -10,31 +10,6 @@ def create_variable(name, shape=None, initializer=tf.keras.initializers.GlorotUn
     return tf.compat.v1.get_variable(name=name, shape=shape, dtype=tf.float32, 
                 initializer=initializer, regularizer=regularizer, trainable=train)
 
-def ssr(layer):
-    kernel = layer.get_weights()[0]
-    bias = layer.get_weights()[1]
-    k_h, k_w, k_c, n_f = kernel.shape
-    F = np.ones([n_f, k_c*k_h*k_w + 1])
-    Y = np.zeros([n_f, k_c*k_h*k_w + 1])
-    for it in range(1):
-        mkernel = tf.concat([tf.reshape(tf.transpose(kernel, [3, 2, 0, 1]), [n_f, -1]), tf.reshape(bias, [n_f, 1])], 1)
-        T2 = mkernel + 1 / p * Y
-        # l2,1
-        # newF = T2 * tf.reshape(tf.maximum(tf.norm(T2, ord=2, axis=1) - Lambda / p, 0) / (tf.norm(T2, ord=2, axis=1) + 1e-9), [-1, 1])
-        # l2,0
-        newF = np.zeros_like(F)
-        for i in range(n_f):
-            if Lambda<(p/2)*tf.norm(T2[i], ord=2)**2:
-                newF[i] = T2[i]
-        dF = newF-F
-        F = newF
-        Y = Y + p * (mkernel - F)
-
-        # T1 = F - 1 / p * Y
-        # tf.losses.add_loss(p/2 * tf.pow(tf.norm(mkernel - T1, ord='fro', axis=[0, 1]), 2))
-
-    return 1 - tf.cast(tf.equal(tf.reduce_sum(F, 1), 0), tf.float32)
-
 def l1(layer, sparsity=0.22):
     kernel, bias = layer.get_weights()
     n_f = kernel.shape[-1]
@@ -43,25 +18,79 @@ def l1(layer, sparsity=0.22):
     Lambda = sorted(zz)[int(n_f*sparsity)]
     return np.array([0 if x <Lambda else 1 for x in zz])
 
-# add batch-normalization if possible
-def prune_ssr(model):
-    prune_list =[]
-    p = 1
-    Lambda = 0.5
-    for layer in model.layers[:-1]:
-        if layer.__class__.__name__ == 'Conv2D':
-            #--------
-            # mask has zero where a layer has to be pruned
-            # mask = ssr(layer)
-            mask = l1(layer)
-            #--------
-            w_compress = 1 - tf.reduce_sum(mask) / mask.shape[0]
-            channels = [i for i, x in enumerate(mask) if x==0.]
-            prune_list.append((layer, channels))
-        else:
-            prune_list.append((layer, None))
-    prune_list.append((model.layers[-1], None))
-    return delete(model, prune_list)
+class PruneSSR:
+    def __init__(self, model, data):
+        self.model = model
+        self.data = data
+        self.prune_list = []
+        self.p = 1
+        self.Lambda = 0.5
+
+    def change_wts(self, layer, mkernel, _shape):
+        k_h, k_w, k_c, n_f = _shape
+        wt = mkernel[:, :-1]
+        wt = tf.reshape(wt, [n_f, -1, k_h, k_w])
+        wt = tf.transpose(wt, [2, 3, 1, 0])
+        b = mkernel[:,-1]
+        layer.set_weights([wt, b])
+
+    def get_loss(self):
+        # keras loss functions are not compatible use custom loss function
+        return soft_dice_loss(self.data[1], self.model.predict(self.data[0], batch_size=1))
+        # return CCE(self.data[1], self.model.predict(self.data[0], batch_size=1))
+
+    def _do_ssr_layer(self, layer):
+
+        kernel = layer.get_weights()[0]
+        bias = layer.get_weights()[1]
+        k_h, k_w, k_c, n_f = kernel.shape
+        F = np.ones([n_f, k_c*k_h*k_w + 1])
+        Y = np.zeros([n_f, k_c*k_h*k_w + 1])
+        mkernel = tf.Variable(tf.concat([tf.reshape(tf.transpose(kernel, [3, 2, 0, 1]), [n_f, -1]), tf.reshape(bias, [n_f, 1])], 1))
+
+        for it in range(5):
+            T1 = F - 1 / self.p * Y
+            loss = lambda : self.p/2 * tf.pow(tf.norm(mkernel - T1, ord='fro', axis=[0, 1]), 2)
+            ''' 
+            Here adding keras-CCE loss function is not compatible with keras-optimizer since every operation doeant have a gradient 
+            so we use custom made loss function here 
+            ''' 
+            # loss = lambda : self.get_loss() + self.p/2 * tf.pow(tf.norm(mkernel - T1, ord='fro', axis=[0, 1]), 2)
+            tf.keras.optimizers.SGD().minimize(loss, [mkernel])
+            # set the model weight at this layer
+            self.change_wts(layer, mkernel, kernel.shape)
+
+            T2 = mkernel + 1 / self.p * Y
+            # l2,1
+            newF = T2 * tf.reshape(tf.maximum(tf.norm(T2, ord=2, axis=1) - self.Lambda / self.p, 0) / (tf.norm(T2, ord=2, axis=1) + 1e-9), [-1, 1])
+            dF = newF-F
+            F = newF
+
+            Y = Y + self.p * (mkernel - F)
+            if tf.norm(dF, ord=2)<=2:
+                break
+
+        return 1 - tf.cast(tf.equal(tf.reduce_sum(F, 1), 0), tf.float32)
+
+    def _do_ssr(self):
+        for layer in self.model.layers[:-1]:
+            if layer.__class__.__name__ == 'Conv2D':
+                #--------
+                # mask has zero where a layer has to be pruned
+                mask = self._do_ssr_layer(layer)
+                # mask = l1(layer)
+                #--------
+                w_compress = 1 - tf.reduce_sum(mask) / mask.shape[0]
+                channels = [i for i, x in enumerate(mask) if x==0.]
+                self.prune_list.append((layer, channels))
+            else:
+                self.prune_list.append((layer, None))
+        self.prune_list.append((self.model.layers[-1], None))
+
+    def get_model(self):
+        self.prune_list = []
+        self._do_ssr()
+        return delete(self.model, self.prune_list)
 
 # delete channels in filter
 def delete(model, lst):

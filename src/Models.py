@@ -1,132 +1,18 @@
-
 import tensorflow as tf
 from tensorflow.keras.initializers import GlorotUniform
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, concatenate, Conv2D, Conv3D, MaxPooling3D, MaxPooling2D, Conv3DTranspose, AveragePooling3D, ZeroPadding3D, BatchNormalization, Lambda, Multiply, Conv1D, Reshape
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Conv2DTranspose
 from tensorflow.keras import backend as K
-# from tensorflow.python import framework_ops
 from tensorflow.keras.regularizers import l2
-from tensorflow.keras.utils import plot_model
-from tensorflow.keras.optimizers import RMSprop, Adam, SGD
-from tensorflow.keras.callbacks import ModelCheckpoint, CSVLogger
+from tensorflow.keras.optimizers import Adam
 from codeUtils import *
 K.set_image_data_format('channels_last')
 
-# framework_ops.enable_eager_execution()
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
 
 def create_variable(name, shape): 
     return tf.compat.v1.get_variable(name=name, shape=shape, initializer=GlorotUniform(), regularizer=None)
-
-# VFR 1
-def VFR_layer_(input_tensor, name='VFR_Layer'):
-    # input_tensor.shape = [None, img_height, img_width, img_depth, n_filters()]  
-    a, s, c = input_tensor.shape[1:4]
-    print(a, s,c)
-    filters = input_tensor.shape[4]
-
-    def vfr(_, input):
-        inp = input[0]
-        kernel1_a = input[1]
-        kernel1_s = input[2]
-        kernel1_c = input[3]
-        kernel2_a = input[4]
-        kernel2_s = input[5]
-        kernel2_c = input[6]
- 
-        conv_axis_c = tf.reduce_mean(inp, axis = [1,2], keepdims = True)
-        conv_axis_c = tf.nn.relu(tf.nn.conv2d(conv_axis_c, kernel1_c, [1, 1, 1, 1], padding='SAME'))
-        conv_axis_c = tf.nn.sigmoid(tf.nn.conv2d(conv_axis_c, kernel2_c, [1, 1, 1, 1], padding='SAME'))
-
-        conv_axis_s = tf.reduce_mean(inp, axis = [1,3],keepdims = True)
-        conv_axis_s = tf.transpose(conv_axis_s, [0,1,3,2])
-        conv_axis_s = tf.nn.relu(tf.nn.conv2d(conv_axis_s, kernel1_s, [1, 1, 1, 1], padding='SAME'))
-        conv_axis_s = tf.nn.sigmoid(tf.nn.conv2d(conv_axis_s, kernel2_s, [1, 1, 1, 1], padding='SAME'))
-        conv_axis_s = tf.transpose(conv_axis_s, [0,1,3,2])
-
-        conv_axis_a = tf.reduce_mean(inp, axis = [2,3], keepdims = True)
-        conv_axis_a = tf.transpose(conv_axis_a, [0,2,3,1])
-        conv_axis_a = tf.nn.relu(tf.nn.conv2d(conv_axis_a, kernel1_a, [1, 1, 1, 1], padding='SAME'))
-        conv_axis_a = tf.nn.sigmoid(tf.nn.conv2d(conv_axis_a, kernel2_a, [1, 1, 1, 1], padding='SAME'))
-        conv_axis_a = tf.transpose(conv_axis_a,[0,3,1,2])
-
-        mat = tf.multiply(conv_axis_a,inp)
-        mat = tf.multiply(conv_axis_s,mat)
-        mat = tf.multiply(conv_axis_c,mat)
-
-        return mat
-
-    kernel1_a = create_variable(name=name+'_kernel1_a', shape=[filters, 1, 1, a, a//4])
-    kernel1_s = create_variable(name=name+'_kernel1_s', shape=[filters, 1, 1, s, s//4])
-    kernel1_c = create_variable(name=name+'_kernel1_c', shape=[filters, 1, 1, c, c//4])
-    kernel2_a = create_variable(name=name+'_kernel2_a', shape=[filters, 1, 1, a//4, a])
-    kernel2_s = create_variable(name=name+'_kernel2_s', shape=[filters, 1, 1, s//4, s])
-    kernel2_c = create_variable(name=name+'_kernel2_c', shape=[filters, 1, 1, c//4, c])
-
-    inp = tf.transpose(input_tensor, [4,0,1,2,3])
-    # mat = tf.scan(vfr, (inp, kernel1_a, kernel1_s, kernel1_c, kernel2_a, kernel2_s, kernel2_c)
-    #                             # , initializer=tf.zeros(input_tensor.get_shape())
-    # )
-
-    z = []
-    for i in range(filters):
-        z.append(vfr(None, (inp[i,], kernel1_a[i,], kernel1_s[i,], kernel1_c[i,], kernel2_a[i,], kernel2_s[i,], kernel2_c[i,])))
-    z = tf.stack(z)
-    return tf.transpose(z, [1,2,3,4,0])
-
-def VFR_layer(input_tensor, name='VFR'):
-    def f(old,input):
-        h1 = input[0]
-        kernel1_a = input[1] 
-        kernel1_s = input[2] 
-        kernel1_c = input[3] 
-        kernel2_a = input[4] 
-        kernel2_s = input[5] 
-        kernel2_c = input[6] 
-
-        conv_axis1 = tf.reduce_mean(h1,axis = [1,2], keepdims = True)
-        conv1_axis1 = tf.nn.relu(tf.nn.conv2d(conv_axis1,kernel1_c,[1,1,1,1],padding = "SAME"))
-        conv1_axis1 = tf.nn.sigmoid(tf.nn.conv2d(conv1_axis1,kernel2_c,[1,1,1,1],padding = "SAME"))
-
-        conv_axis2 = tf.reduce_mean(h1,axis = [1,3], keepdims = True)
-        conv_axis2 = tf.transpose(conv_axis2,[0,1,3,2])
-        conv1_axis2 = tf.nn.relu(tf.nn.conv2d(conv_axis2,kernel1_s,[1,1,1,1],padding = "SAME"))
-        conv1_axis2 = tf.nn.sigmoid(tf.nn.conv2d(conv1_axis2,kernel2_s,[1,1,1,1],padding = "SAME"))
-        conv1_axis2 = tf.transpose(conv1_axis2,[0,1,3,2])
-
-        conv_axis3 = tf.reduce_mean(h1,axis = [2,3], keepdims = True)
-        conv_axis3 = tf.transpose(conv_axis3,[0,2,3,1])
-        conv1_axis3 = tf.nn.relu(tf.nn.conv2d(conv_axis3,kernel1_a,[1,1,1,1],padding = "SAME"))
-        conv1_axis3 = tf.nn.sigmoid(tf.nn.conv2d(conv1_axis3,kernel2_a,[1,1,1,1],padding = "SAME"))
-        conv1_axis3 = tf.transpose(conv1_axis3,[0,3,1,2])
-
-        mat1 = tf.multiply(conv1_axis1,h1)
-        mat1 = tf.multiply(conv1_axis2,mat1)
-        mat1 = tf.multiply(conv1_axis3,mat1)
-
-        return mat1
-   
-    batch_size = input_tensor.shape[0]
-    a, s, c = input_tensor.shape[1:4]
-    filters = input_tensor.shape[4]
-
-    kernel1_a = create_variable(name=name+'_kernel1_a', shape=[filters, 1, 1, a, a//4])
-    kernel1_s = create_variable(name=name+'_kernel1_s', shape=[filters, 1, 1, s, s//4])
-    kernel1_c = create_variable(name=name+'_kernel1_c', shape=[filters, 1, 1, c, c//4])
-    kernel2_a = create_variable(name=name+'_kernel2_a', shape=[filters, 1, 1, a//4, a])
-    kernel2_s = create_variable(name=name+'_kernel2_s', shape=[filters, 1, 1, s//4, s])
-    kernel2_c = create_variable(name=name+'_kernel2_c', shape=[filters, 1, 1, c//4, c])
- 
-    x_scan1 = tf.transpose(input_tensor,[4,0,1,2,3])
-
-    mat = tf.scan(f, (x_scan1, kernel1_a, kernel1_s, kernel1_c, kernel2_a, kernel2_s, kernel2_c,), initializer=tf.fill(tf.shape(input_tensor)[:-1], 0.0))     
-    c1 = mat
-    
-    c1 = tf.transpose(c1,[1,2,3,4,0])
-       
-    return c1
 
 class VFR_SM(tf.keras.layers.Layer):
     def __init__(self, **kwargs):
@@ -310,23 +196,16 @@ def VFR(layers, filters):
     a2_axis3 = Reshape([shape[1], 1, 1, filters])(a2_axis3)
     a2_axis3 = Lambda(lambda x: tf.broadcast_to(x, shapeTensor))(a2_axis3)
     a3_axis3 = Reshape([shape[1], 1, 1, filters])(a3_axis3)
-    # a3_axis3 = Lambda(lambda x: tf.transpose(x, [0,3,1,2,4]))(a3_axis3)
     a3_axis3 = Lambda(lambda x: tf.broadcast_to(x, shapeTensor))(a3_axis3)
 
     a1_axis2 = Reshape([1, shape[2], 1, filters])(a1_axis2)
-    # a1_axis2 = Lambda(lambda x: tf.transpose(x, [0,1,3,2,4]))(a1_axis2)
     a2_axis2 = Reshape([1, shape[2], 1, filters])(a2_axis2)
-    # a2_axis2 = Lambda(lambda x: tf.transpose(x, [0,1,3,2,4]))(a2_axis2)
     a2_axis2 = Lambda(lambda x: tf.broadcast_to(x, shapeTensor))(a2_axis2)
     a3_axis2 = Reshape([1, shape[2], 1, filters])(a3_axis2)
-    # a3_axis2 = Lambda(lambda x: tf.transpose(x, [0,1,3,2,4]))(a3_axis2)
     a3_axis2 = Lambda(lambda x: tf.broadcast_to(x, shapeTensor))(a3_axis2)
     
-    # a1_axis1 = Reshape(shape[1:])(a1_axis1)
     a1_axis1 = Lambda(lambda x: tf.broadcast_to(x, shapeTensor))(a1_axis1)
-    # a2_axis1 = Reshape(shape[1:])(a2_axis1)
     a2_axis1 = Lambda(lambda x: tf.broadcast_to(x, shapeTensor))(a2_axis1)
-    # a3_axis1 = Reshape(shape[1:])(a3_axis1)
     a3_axis1 = Lambda(lambda x: tf.broadcast_to(x, shapeTensor))(a3_axis1)
 
     op1 = multiply([layer_m1, a1_axis1])
@@ -377,10 +256,6 @@ def SWMM3D():
     pool1_m2 = maxPool(vfr1_m2)
     pool1_m3 = maxPool(vfr1_m3)
 
-    # pool1_m1 = maxPool(conv1_m1)
-    # pool1_m2 = maxPool(conv1_m2)
-    # pool1_m3 = maxPool(conv1_m3) 
-
     #-------------------------------------------- DS1
     deconv_ds1 = concatenate([deConv(64, pool1_m1), deConv(64, pool1_m2), deConv(64, pool1_m3)], axis = 4)
     conv_ds1 = reluConv(32, deconv_ds1)
@@ -399,10 +274,6 @@ def SWMM3D():
     pool2_m1 = maxPool(vfr2_m1)
     pool2_m2 = maxPool(vfr2_m2)
     pool2_m3 = maxPool(vfr2_m3) 
-
-    # pool2_m1 = maxPool(conv2_m1)
-    # pool2_m2 = maxPool(conv2_m2)
-    # pool2_m3 = maxPool(conv2_m3)
     
     #-------------------------------------------- DS2
     deconv_ds2_m1 = deConv(128, pool2_m1)
@@ -427,10 +298,6 @@ def SWMM3D():
     deconv3_m2 = concatenate([deConv(64, vfr3_m2), vfr2_m2], axis = 4)
     deconv3_m3 = concatenate([deConv(64, vfr3_m3), vfr2_m3], axis = 4)
 
-    # deconv3_m1 = concatenate([deConv(64, conv3_m1), conv2_m1], axis = 4)
-    # deconv3_m2 = concatenate([deConv(64, conv3_m2), conv2_m2], axis = 4)
-    # deconv3_m3 = concatenate([deConv(64, conv3_m3), conv2_m3], axis = 4)
-
     conv4_m1 = reluConv(128, deconv3_m1)
     conv4_m2 = reluConv(128, deconv3_m2)
     conv4_m3 = reluConv(128, deconv3_m3)
@@ -444,10 +311,6 @@ def SWMM3D():
     deconv4_m2 = concatenate([deConv(32, vfr4_m2), vfr1_m2], axis = 4)
     deconv4_m3 = concatenate([deConv(32, vfr4_m3), vfr1_m3], axis = 4)
 
-    # deconv4_m1 = concatenate([deConv(32, conv4_m1), conv1_m1], axis = 4)
-    # deconv4_m2 = concatenate([deConv(32, conv4_m2), conv1_m2], axis = 4)
-    # deconv4_m3 = concatenate([deConv(32, conv4_m3), conv1_m3], axis = 4)
-
     conv5_m1 = reluConv(64, deconv4_m1)
     conv5_m2 = reluConv(64, deconv4_m2)
     conv5_m3 = reluConv(64, deconv4_m3)
@@ -457,7 +320,6 @@ def SWMM3D():
     conv5_m3 = reluConv(64, conv5_m3)
 
     vfr5 = concatenate(VFR([conv5_m1, conv5_m2, conv5_m3], 64), axis = 4)
-    # vfr5 = concatenate([conv5_m1, conv5_m2, conv5_m3], axis = 4)
     conv6 = reluConv(32, vfr5)
     out = softConv(1, conv6, name='OUT')
 
@@ -508,16 +370,6 @@ def Unet2D():
     conv10 = Conv2D(5, (1, 1), activation='sigmoid')(conv9)
 
     model = Model(inputs=[inputs], outputs=[conv10])
-    # model.compile(optimizer=Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-07, decay=0.000199), loss=weighted_CCE([1.0,1.1,1.2,1.1,1.1]), metrics=['accuracy', dice_coef])
     model.compile(optimizer=Adam(lr=0.0001, beta_1=0.9, beta_2=0.999, epsilon=1e-07, decay=0.000199), loss=CCE, metrics=['accuracy', dice_coef])
-    # model.compile(optimizer=Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-07, decay=0.000199), loss=soft_dice_loss, metrics=['accuracy', dice_coef])
-
+ 
     return model
-
-
-models = [
-	'single-modality',
-	'multi-modality',
-	'SW-single-modality', 
-	'SW-multi-modality'
-]
