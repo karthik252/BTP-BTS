@@ -1,3 +1,8 @@
 /src/logs
 /src/weights
 /src/__pycache__
+/ProcessedData
+/Dataset_BRATS2015
+/Dataset_BRATS2015NII
+*.npz
+/src/*.txt
