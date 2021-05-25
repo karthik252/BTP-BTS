@@ -1,21 +1,21 @@
-To execute the code follow the below instructions
 
-Moduled Needed
-	-
-	-
-	-
-	-
+Third Party modules required
+	*Tensorflow 2.4
+	*numpy
+	*nibabel
+	*PIL
+	*Antspyx
+	*shutil
+	*matplotlib
+	*SimpleITK
+	*intensity_normalization
 
-Order of execution
-	1.	Run following only if Dataset is not available in NII format
-			python3 mhatonii.py
-	2.	python3 Preprocessing.py
-	3.	
+Download the BRATS Dataset from https://sites.google.com/site/braintumorsegmentation/home/brats2015
 
-
-Notes till now
-
-	preprocessing is only being done for train  till now
-	remove some print functions in getData()
-	also getData() has to be adjusted for 2015 dataset
-	getData() code is really naive change it
+Executions
+Run following only if Dataset is not available in NII format
+> python3 mhatonii.py
+Do Preprocessing on the Data
+> python3 PreProcessing.py
+Configure the variables in main.py as required
+>python3 main.py

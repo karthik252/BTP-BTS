@@ -6,3 +6,4 @@
 /Dataset_BRATS2015NII
 *.npz
 /src/*.txt
+/src/bugtest.py
